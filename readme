@@ -1,0 +1,21 @@
+clone of http://github.com/progrium/protocol-droid with these differences:
+
+- xmpp sending works
+- much more poorly written, blocks on network calls sometimes
+- takes user URIs and looks up their actual contact info in FOAF
+
+My API:
+
+    POST /
+      user={foaf uri}
+      msg={text}
+      mode={email|xmpp|sms}
+        
+If you don't like foaf, just pass the appopriate address for the
+message mode, such as 
+  mode=email&user=drewp@example.com
+  mode=xmpp&user=drewp@jabber.example.com
+  mode=sms&user=6505551234@sms.example.com
+
+The SMS mode sends your message as the from-line of the email, which
+looked pretty good on my Palm Pre.

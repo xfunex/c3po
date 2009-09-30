@@ -1,0 +1,115 @@
+#!/usr/bin/python
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+import xmpp
+from mulib import mu
+from eventlet import api, httpd
+warnings.resetwarnings()
+from rdflib import URIRef
+
+import smtplib, urllib
+from email.mime.text import MIMEText
+
+class FoafStore(object):
+    """all the getters assume that if we don't know anything about
+    your user URI, then you must have passed the right return value
+    for the method"""
+
+    # this is just a stub, so far
+    
+    def getEmail(self, user):
+        return {'http://bigasterisk.com/foaf.rdf#drewp' : 'drewp@bigasterisk.com',
+                }.get(user, user)
+
+    def getJid(self, user):
+        return {'http://bigasterisk.com/foaf.rdf#drewp' : 'drewp@jabber.bigasterisk.com',
+                }.get(user, user)
+
+    def getSms(self, user):
+        """the email address to the SMS gateway for this user"""
+        return {'http://bigasterisk.com/foaf.rdf#drewp' :
+                open("drew-sms-number").read().strip() + '@messaging.sprintpcs.com',
+                }.get(user, user)
+
+class Bot(object):
+    smtpHost = 'bigasterisk.com'
+    senderEmail = 'drewp@bigasterisk.com'
+    jid = "house@jabber.bigasterisk.com"
+    jabberHost = 'jabber.bigasterisk.com'
+    jabberPassword = open("house-jabber-password").read().strip()
+
+def emailMsg(foaf, to, msg, from_=None):
+    if from_ is None:
+        from_ = Bot.senderEmail
+        
+    m = MIMEText('')
+    m['Subject'] = msg
+    m['From'] = from_
+    m['To'] = foaf.getEmail(to)
+
+    mailServer = smtplib.SMTP(Bot.smtpHost)
+    mailServer.sendmail(Bot.senderEmail, [m['To']], m.as_string())
+    mailServer.quit()
+
+    return "Mailed %s" % m['To']
+
+def smsMsg(foaf, to, msg):
+    # on palm pre, the sender takes up most of the notification
+    # space. So let's put our message in the sender spot! seems to
+    # work
+    num = foaf.getSms(to)
+    emailMsg(foaf, num, '', from_=msg)
+    return "Sent to %s" % num
+
+def xmppMsg(foaf, to, msg):
+    jid=xmpp.protocol.JID(Bot.jid)
+    cl=xmpp.Client(jid.getDomain(),debug=[])
+
+    # sometimes the next call just prints (!) 'An error occurred while
+    # looking up _xmpp-client._tcp.{something.com}'. Then we return
+    # successful, even though the connect failed :(
+    if not cl.connect((Bot.jabberHost, 5222)):
+        raise IOError('Can not connect to server.')
+    if not cl.auth(jid.getNode(), Bot.jabberPassword):
+        raise IOError('Can not auth with server.')
+
+    cl.send(xmpp.Message(foaf.getJid(to), msg, typ='chat'))
+    cl.disconnect()
+    return "Jabbered %s" % to
+
+class Root(mu.Resource):
+    def __init__(self, foaf):
+        self.foaf = foaf
+        
+    def handle_get(self, req):
+        req.write('''<html><body>
+        <form method="post" action="">
+            <div>User address or URI: <input name="user"/></div>
+            <div>Message: <input name="msg"/></div>
+            <div>Preferred mode:
+            <select name="mode">
+                <option>xmpp</option>
+                <option>email</option>
+                <option>sms</option>
+            </select></div>
+            <div><input type="submit"/></div>
+        </form>
+        </body></html>
+        ''')
+        
+    def handle_post(self, req):
+        user = req.get_arg('user')
+        msg = req.get_arg('msg')
+        mode = req.get_arg('mode')
+        if not user or not msg or not mode:
+            raise ValueError("missing user, msg, or mode")
+
+        func = {'email' : emailMsg,
+                'xmpp' :  xmppMsg,
+                'sms' : smsMsg}[mode]
+        req.write(func(foaf, user, msg))
+ 
+if __name__ == "__main__":
+    foaf = FoafStore()
+    root = Root(foaf)
+    httpd.server(api.tcp_listener(('0.0.0.0', 9040)), mu.SiteMap(root))
