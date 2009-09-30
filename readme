@@ -16,6 +16,3 @@ message mode, such as
   mode=email&user=drewp@example.com
   mode=xmpp&user=drewp@jabber.example.com
   mode=sms&user=6505551234@sms.example.com
-
-The SMS mode sends your message as the from-line of the email, which
-looked pretty good on my Palm Pre.

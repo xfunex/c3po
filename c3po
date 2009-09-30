@@ -55,10 +55,12 @@ def emailMsg(foaf, to, msg, from_=None):
 
 def smsMsg(foaf, to, msg):
     # on palm pre, the sender takes up most of the notification
-    # space. So let's put our message in the sender spot! seems to
-    # work
+    # space. So let's put our message in the sender spot! not working yet
     num = foaf.getSms(to)
-    emailMsg(foaf, num, '', from_=msg)
+    emailMsg(foaf, num, msg,
+             from_='c3po',
+             #from_='"%s"' % msg.replace('"', '\\"') #?
+             )
     return "Sent to %s" % num
 
 def xmppMsg(foaf, to, msg):
