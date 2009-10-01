@@ -5,9 +5,14 @@ import xmpp
 from mulib import mu
 from eventlet import api, httpd
 warnings.resetwarnings()
-from rdflib import URIRef
+from rdflib import URIRef, Namespace, Variable
+from rdflib.Graph import Graph
+from twisted.python.util import sibpath
 
-import smtplib, urllib
+FOAF = Namespace("http://xmlns.com/foaf/0.1/")
+SMS = Namespace("http://bigasterisk.com/ns/sms/")
+
+import smtplib
 from email.mime.text import MIMEText
 
 class FoafStore(object):
@@ -15,22 +20,52 @@ class FoafStore(object):
     your user URI, then you must have passed the right return value
     for the method"""
 
-    # this is just a stub, so far
-    
+    def __init__(self, store):
+        self.graph = Graph()
+        self.graph.parse(store, format="n3")
+
     def getEmail(self, user):
-        return {'http://bigasterisk.com/foaf.rdf#drewp' : 'drewp@bigasterisk.com',
-                }.get(user, user)
+        return self.graph.value(URIRef(user), FOAF.mbox, default=user)
 
     def getJid(self, user):
-        return {'http://bigasterisk.com/foaf.rdf#drewp' : 'drewp@jabber.bigasterisk.com',
-                }.get(user, user)
+        return self.graph.value(URIRef(user), FOAF.jabberID, default=user)
 
     def getSms(self, user):
-        """the email address to the SMS gateway for this user"""
-        return {'http://bigasterisk.com/foaf.rdf#drewp' :
-                open("drew-sms-number").read().strip() + '@messaging.sprintpcs.com',
-                }.get(user, user)
+        """the email address to the SMS gateway for this user's phone.
 
+        I'm looking for this pattern in the RDF store:
+
+            ?user foaf:phone <tel:+555-555-5555> .
+            <tel:+555-555-5555> sms:gateway ?gateway .
+            ?gateway sms:addressFormat "n@example.com" .
+
+        See http://www.mutube.com/projects/open-email-to-sms/gateway-list/
+        for the formats.
+        """
+
+        try:
+            rows = list(self.graph.query(
+                """SELECT ?n ?format WHERE {
+                     ?user foaf:phone ?n .
+                     ?n sms:gateway [ sms:addressFormat ?format ] .
+                   }""",
+                initBindings={Variable("user") : URIRef(user)},
+                initNs=dict(foaf=FOAF, sms=SMS)))
+            if not rows:
+                raise ValueError("no sms gateway found for %s" % user)
+
+            addr1, addr2 = rows[0][1].split('@')
+            n = rows[0][0]
+            if not n.startswith("tel:"):
+                raise ValueError("unknown phone uri %r" % n)
+            n = n[4:].replace('+','').replace('-', '')
+            addr = addr1.replace('n', n) + '@' + addr2
+        except ValueError:
+            addr = user
+            
+        return addr
+
+# move this data to the account store
 class Bot(object):
     smtpHost = 'bigasterisk.com'
     senderEmail = 'drewp@bigasterisk.com'
@@ -112,6 +147,6 @@ class Root(mu.Resource):
         req.write(func(foaf, user, msg))
  
 if __name__ == "__main__":
-    foaf = FoafStore()
+    foaf = FoafStore(sibpath(__file__, 'accounts.n3'))
     root = Root(foaf)
     httpd.server(api.tcp_listener(('0.0.0.0', 9040)), mu.SiteMap(root))
