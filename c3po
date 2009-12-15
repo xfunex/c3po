@@ -77,8 +77,7 @@ def emailMsg(foaf, to, msg, from_=None):
     if from_ is None:
         from_ = Bot.senderEmail
         
-    m = MIMEText('')
-    m['Subject'] = msg
+    m = MIMEText(msg)
     m['From'] = from_
     m['To'] = foaf.getEmail(to)
 
