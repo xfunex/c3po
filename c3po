@@ -1,13 +1,23 @@
-#!/usr/bin/python
+#!/usr/bin/python2.7
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 import xmpp
 from mulib import mu
 from eventlet import api, httpd
 warnings.resetwarnings()
-from rdflib import URIRef, Namespace, Variable
-from rdflib.Graph import Graph
+import web, sys
+from rdflib import URIRef, Namespace, Variable, Literal
+from rdflib import Graph
 from twisted.python.util import sibpath
+
+import rdflib
+from rdflib import plugin
+plugin.register(
+  "sparql", rdflib.query.Processor,
+  "rdfextras.sparql.processor", "Processor")
+plugin.register(
+  "sparql", rdflib.query.Result,
+  "rdfextras.sparql.query", "SPARQLQueryResult") 
 
 FOAF = Namespace("http://xmlns.com/foaf/0.1/")
 SMS = Namespace("http://bigasterisk.com/ns/sms/")
