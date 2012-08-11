@@ -2,8 +2,6 @@
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 import xmpp
-from mulib import mu
-from eventlet import api, httpd
 warnings.resetwarnings()
 import web, sys
 from rdflib import URIRef, Namespace, Variable, Literal
@@ -35,7 +33,10 @@ class FoafStore(object):
         self.graph.parse(store, format="n3")
 
     def getEmail(self, user):
-        return self.graph.value(URIRef(user), FOAF.mbox, default=user)
+        e = self.graph.value(URIRef(user), FOAF.mbox, default=user)
+        if isinstance(e, URIRef) and e.startswith('mailto:'):
+            e = Literal(e[len('mailto:'):])
+        return e
 
     def getJid(self, user):
         return self.graph.value(URIRef(user), FOAF.jabberID, default=user)
@@ -62,6 +63,8 @@ class FoafStore(object):
                 initBindings={Variable("user") : URIRef(user)},
                 initNs=dict(foaf=FOAF, sms=SMS)))
             if not rows:
+                # bug: maybe we know about the user uri, just don't have a
+                # phone number! 
                 raise ValueError("no sms gateway found for %s" % user)
 
             addr1, addr2 = rows[0][1].split('@')
@@ -97,17 +100,26 @@ def emailMsg(foaf, to, msg, from_=None):
 
     return "Mailed %s" % m['To']
 
-def smsMsg(foaf, to, msg):
-    # on palm pre, the sender takes up most of the notification
-    # space. So let's put our message in the sender spot! not working yet
+def smsMsg(foaf, to, msg, tryJabber=False):
+    if tryJabber:
+        try:
+            xmppMsg(foaf, to, msg, mustBeAvailable=True)
+            return "Sent via jabber to %s" % num
+        except ValueError:
+            pass
+        
     num = foaf.getSms(to)
     emailMsg(foaf, num, msg,
              from_='c3po',
-             #from_='"%s"' % msg.replace('"', '\\"') #?
              )
     return "Sent to %s" % num
 
-def xmppMsg(foaf, to, msg):
+def xmppMsg(foaf, to, msg, mustBeAvailable=False):
+    """
+    if mustBeAvailable is set, you'll get an exception if the user
+    doesn't have an available presence (so you could fall back on
+    other methods)
+    """
     jid=xmpp.protocol.JID(Bot.jid)
     cl=xmpp.Client(jid.getDomain(),debug=[])
 
@@ -123,12 +135,9 @@ def xmppMsg(foaf, to, msg):
     cl.disconnect()
     return "Jabbered %s" % to
 
-class Root(mu.Resource):
-    def __init__(self, foaf):
-        self.foaf = foaf
-        
-    def handle_get(self, req):
-        req.write('''<html><body>
+class Root(object):
+    def GET(self):
+        return ('''<html><body>
         <form method="post" action="">
             <div>User address or URI: <input name="user"/></div>
             <div>Message: <input name="msg"/></div>
@@ -143,19 +152,22 @@ class Root(mu.Resource):
         </body></html>
         ''')
         
-    def handle_post(self, req):
-        user = req.get_arg('user')
-        msg = req.get_arg('msg')
-        mode = req.get_arg('mode')
+    def POST(self):
+        i = web.input()
+        user = i['user']
+        msg = i['msg']
+        mode = i['mode']
         if not user or not msg or not mode:
             raise ValueError("missing user, msg, or mode")
 
         func = {'email' : emailMsg,
                 'xmpp' :  xmppMsg,
                 'sms' : smsMsg}[mode]
-        req.write(func(foaf, user, msg))
+        return func(foaf, user, msg)
  
 if __name__ == "__main__":
     foaf = FoafStore(sibpath(__file__, 'accounts.n3'))
-    root = Root(foaf)
-    httpd.server(api.tcp_listener(('0.0.0.0', 9040)), mu.SiteMap(root))
+    sys.argv.append("9040")
+    app = web.application((r'/', 'Root'), globals())
+    app.run()
+
